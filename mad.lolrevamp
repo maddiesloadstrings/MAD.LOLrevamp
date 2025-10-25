@@ -1,0 +1,1104 @@
+local UserInputService = game:GetService('UserInputService')
+local StarterGui = game:GetService('StarterGui')
+local RunService = game:GetService('RunService')
+local Players = game:GetService('Players')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+Workspace.FallenPartsDestroyHeight =
+    -99999999999999999999999999999999999999999999999999999999999999999
+
+local ESP = {
+    Enabled = true,
+    Color = Color3.fromRGB(255, 255, 255),
+    Size = 20,
+    Transparency = 1,
+    TrackedPlayers = {},
+}
+
+local Movement = {
+    WalkSpeed = 200,
+    JumpPower = 100,
+    Enabled = false,
+}
+
+local Aura = {
+    Enabled = false,
+    Range = 250,
+    FriendCheck = false,
+    ForcefieldCheck = false,
+    Blacklist = {},
+}
+
+local AntiStomp = {
+    Enabled = true,
+}
+
+local NotifyLibrary = loadstring(
+    game:HttpGet(
+        'https://raw.githubusercontent.com/XK5NG/XK5NG.github.io/main/Notify'
+    )
+)()
+
+local Players = game:GetService('Players')
+local UserInputService = game:GetService('UserInputService')
+local RunService = game:GetService('RunService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local Camera = workspace.CurrentCamera
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local lockedTarget = nil
+local lockEnabled = false
+local viewEnabled = false
+local orbitEnabled = false
+local orbitAngle = 0
+local orbitRadius = 11
+local orbitHeight = 0
+local orbitSpeed = 1000
+local StompTargetEnabled = true
+local koCheckEnabled = true
+local grabCheckEnabled = true
+local oldPosition = nil
+
+local function toggleStompTarget()
+    StompTargetEnabled = not StompTargetEnabled
+    local status = StompTargetEnabled and 'enabled' or 'disabled'
+    Library:Notify('Stomp Target ' .. status, 2)
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then
+        return
+    end
+    if input.KeyCode == Enum.KeyCode.L then
+        toggleStompTarget()
+    end
+end)
+
+local Players = game:GetService('Players')
+local UserInputService = game:GetService('UserInputService')
+local RunService = game:GetService('RunService')
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild('Humanoid')
+local RootPart = Character:WaitForChild('HumanoidRootPart')
+
+local spinEnabled = false
+local spinSpeed = 12
+
+-- Function to start/stop SpinBot
+local function toggleSpinBot()
+    spinEnabled = not spinEnabled
+    if spinEnabled then
+        Humanoid.AutoRotate = false
+        Library:Notify('SpinBot Enabled (Speed: ' .. spinSpeed .. ')', 2)
+    else
+        Humanoid.AutoRotate = true
+        Library:Notify('SpinBot Disabled', 2)
+    end
+end
+
+-- Function to adjust spin speed
+local function adjustSpinSpeed(amount)
+    spinSpeed = math.max(2, spinSpeed + amount) -- Prevents speed from going below 2
+    Library:Notify('Spin Speed: ' .. spinSpeed, 2)
+end
+
+-- Spin logic
+RunService.Heartbeat:Connect(function(deltaTime)
+    if spinEnabled and RootPart then
+        RootPart.CFrame = RootPart.CFrame
+            * CFrame.Angles(0, math.rad(spinSpeed), 0)
+    end
+end)
+
+-- Detect keypresses (B to toggle, + and - to adjust speed)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then
+        return
+    end
+
+    if input.KeyCode == Enum.KeyCode.B then
+        toggleSpinBot()
+    elseif
+        input.KeyCode == Enum.KeyCode.Equals
+        or input.KeyCode == Enum.KeyCode.KeypadPlus
+    then
+        adjustSpinSpeed(2) -- Increase speed
+    elseif
+        input.KeyCode == Enum.KeyCode.Minus
+        or input.KeyCode == Enum.KeyCode.KeypadMinus
+    then
+        adjustSpinSpeed(-2) -- Decrease speed
+    end
+end)
+
+-- Reapply after respawn
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    Character = newCharacter
+    Humanoid = Character:WaitForChild('Humanoid')
+    RootPart = Character:WaitForChild('HumanoidRootPart')
+
+    if spinEnabled then
+        Humanoid.AutoRotate = false
+    end
+end)
+
+function getNearestPlayerToMouse()
+    local closestPlayer = nil
+    local closestDistance = math.huge
+    local mouseLocation = UserInputService:GetMouseLocation()
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if
+            player ~= LocalPlayer
+            and player.Character
+            and player.Character:FindFirstChild('Head')
+        then
+            local head = player.Character.Head
+            local headScreenPosition, onScreen =
+                Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local distance = (Vector2.new(
+                    headScreenPosition.X,
+                    headScreenPosition.Y
+                ) - mouseLocation).Magnitude
+                if distance < closestDistance then
+                    closestDistance = distance
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+local tracer = Drawing.new('Line')
+tracer.Thickness = 3
+tracer.Transparency = 1
+tracer.Color = Color3.fromRGB(1, 1, 1)
+tracer.Visible = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.C and not gameProcessed then
+        if lockEnabled then
+            lockedTarget = nil
+            lockEnabled = false
+            tracer.Visible = false
+            if viewEnabled then
+                Camera.CameraSubject =
+                    LocalPlayer.Character:FindFirstChild('Humanoid')
+                viewEnabled = false
+            end
+        else
+            lockedTarget = getNearestPlayerToMouse()
+            lockEnabled = true
+            tracer.Visible = true
+        end
+    elseif input.KeyCode == Enum.KeyCode.H and not gameProcessed then
+        viewEnabled = not viewEnabled
+    elseif input.KeyCode == Enum.KeyCode.F and not gameProcessed then
+        if
+            lockEnabled
+            and lockedTarget
+            and lockedTarget.Character
+            and lockedTarget.Character:FindFirstChild('Humanoid')
+        then
+            local targetPosition =
+                lockedTarget.Character.HumanoidRootPart.Position
+            LocalPlayer.Character.HumanoidRootPart.CFrame =
+                CFrame.new(targetPosition + Vector3.new(0, 5, 0))
+        end
+    elseif input.KeyCode == Enum.KeyCode.T and not gameProcessed then
+        if
+            lockEnabled
+            and lockedTarget
+            and lockedTarget.Character
+            and lockedTarget.Character:FindFirstChild('Humanoid')
+        then
+            if orbitEnabled then
+                orbitEnabled = false
+                if oldPosition then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = oldPosition
+                    oldPosition = nil
+                end
+            else
+                orbitEnabled = true
+                oldPosition = LocalPlayer.Character.HumanoidRootPart.CFrame
+            end
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if
+        lockEnabled
+        and lockedTarget
+        and lockedTarget.Character
+        and lockedTarget.Character:FindFirstChild('Head')
+    then
+        local head = lockedTarget.Character.Head
+        local headScreenPosition, onScreen =
+            Camera:WorldToViewportPoint(head.Position)
+        if onScreen then
+            tracer.From = UserInputService:GetMouseLocation()
+            tracer.To = Vector2.new(headScreenPosition.X, headScreenPosition.Y)
+            tracer.Visible = true
+        else
+            tracer.Visible = false
+        end
+
+        local tool = LocalPlayer.Character
+            and LocalPlayer.Character:FindFirstChildOfClass('Tool')
+        local handle = tool and tool:FindFirstChild('Handle')
+        local targetPart = lockedTarget.Character:FindFirstChild('Head')
+        local notKO = koCheckEnabled
+                and lockedTarget.Character:FindFirstChild('BodyEffects')
+                and not lockedTarget.Character.BodyEffects['K.O'].Value
+            or not koCheckEnabled
+        local notGrabbed = grabCheckEnabled
+                and not lockedTarget.Character:FindFirstChild(
+                    'GRABBING_CONSTRAINT'
+                )
+            or not grabCheckEnabled
+
+        if tool and handle and targetPart and notKO and notGrabbed then
+            ReplicatedStorage.MainEvent:FireServer(
+                'ShootGun',
+                handle,
+                handle.Position,
+                targetPart.Position,
+                targetPart,
+                Vector3.new(0, 0, -1)
+            )
+        end
+    else
+        tracer.Visible = false
+    end
+
+    if
+        viewEnabled
+        and lockedTarget
+        and lockedTarget.Character
+        and lockedTarget.Character:FindFirstChild('Humanoid')
+    then
+        Camera.CameraSubject = lockedTarget.Character:FindFirstChild('Humanoid')
+    elseif
+        not viewEnabled
+        and Camera.CameraSubject
+            ~= LocalPlayer.Character:FindFirstChild('Humanoid')
+    then
+        Camera.CameraSubject = LocalPlayer.Character:FindFirstChild('Humanoid')
+    end
+
+    if
+        orbitEnabled
+        and lockedTarget
+        and lockedTarget.Character
+        and lockedTarget.Character:FindFirstChild('HumanoidRootPart')
+    then
+        local targetPosition = lockedTarget.Character.HumanoidRootPart.Position
+        local targetVelocity = lockedTarget.Character.HumanoidRootPart.Velocity
+        local velocityMagnitude = targetVelocity.Magnitude
+
+        if velocityMagnitude < 1000 then
+            local predictedPosition = targetPosition + targetVelocity * 0.6
+            orbitAngle = orbitAngle
+                + orbitSpeed * RunService.RenderStepped:Wait()
+            local offset = Vector3.new(
+                math.cos(orbitAngle) * orbitRadius,
+                orbitHeight,
+                math.sin(orbitAngle) * orbitRadius
+            )
+            LocalPlayer.Character.HumanoidRootPart.CFrame =
+                CFrame.new(predictedPosition + offset, predictedPosition)
+        else
+            orbitAngle = orbitAngle
+                + orbitSpeed * RunService.RenderStepped:Wait()
+            local offset = Vector3.new(
+                math.cos(orbitAngle) * orbitRadius,
+                orbitHeight,
+                math.sin(orbitAngle) * orbitRadius
+            )
+            LocalPlayer.Character.HumanoidRootPart.CFrame =
+                CFrame.new(targetPosition + offset, targetPosition)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if
+            StompTargetEnabled
+            and lockEnabled
+            and lockedTarget
+            and lockedTarget ~= LocalPlayer
+        then
+            local character = lockedTarget.Character
+            if character then
+                local bodyEffects = character:FindFirstChild('BodyEffects')
+                local isKO = bodyEffects
+                    and bodyEffects:FindFirstChild('K.O')
+                    and bodyEffects['K.O'].Value
+                local isSDeath = bodyEffects
+                    and bodyEffects:FindFirstChild('SDeath')
+                    and bodyEffects['SDeath'].Value
+
+                if isKO and not isSDeath then
+                    local upperTorso = character:FindFirstChild('UpperTorso')
+                        or character:FindFirstChild('HumanoidRootPart')
+                    if upperTorso then
+                        local humanoidRootPart =
+                            LocalPlayer.Character:WaitForChild(
+                                'HumanoidRootPart'
+                            )
+
+                        if not oldPosition then
+                            oldPosition = humanoidRootPart.CFrame
+                        end
+
+                        humanoidRootPart.CFrame = CFrame.new(
+                            upperTorso.Position + Vector3.new(0, 2.9, 0)
+                        )
+                        ReplicatedStorage.MainEvent:FireServer('Stomp')
+                        RunService.RenderStepped:Wait()
+                    end
+                else
+                    if oldPosition then
+                        LocalPlayer.Character.HumanoidRootPart.CFrame =
+                            oldPosition
+                        oldPosition = nil
+                    end
+                end
+            end
+        end
+        task.wait()
+    end
+end)
+
+local function IsValidPlayer(player)
+    return player ~= LocalPlayer
+        and player.Character
+        and player.Character:FindFirstChild('Humanoid')
+        and player.Character.Humanoid.Health > 0
+        and player.Character:FindFirstChild('HumanoidRootPart')
+        and (not Aura.FriendCheck or not player:IsFriendsWith(
+            LocalPlayer.UserId
+        ))
+        and (not Aura.ForcefieldCheck or not player.Character:FindFirstChildOfClass(
+            'ForceField'
+        ))
+        and not table.find(Aura.Blacklist, player.Name)
+        and not player.Character:FindFirstChild('GRABBING_CONSTRAINT')
+end
+
+local function CreateESPText()
+    local text = Drawing.new('Text')
+    text.Visible = false
+    text.Text = ''
+    text.Color = ESP.Color
+    text.Size = ESP.Size
+    text.Transparency = ESP.Transparency
+    text.Outline = true
+    text.OutlineColor = Color3.new(0, 0, 0)
+    return text
+end
+
+local function UpdateESP(player)
+    if not ESP.TrackedPlayers[player] then
+        ESP.TrackedPlayers[player] = { Name = CreateESPText() }
+    end
+
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        if IsValidPlayer(player) then
+            local pos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(
+                player.Character.HumanoidRootPart.Position
+            )
+            if onScreen and ESP.Enabled then
+                ESP.TrackedPlayers[player].Name.Visible = true
+                ESP.TrackedPlayers[player].Name.Position =
+                    Vector2.new(pos.X, pos.Y)
+                ESP.TrackedPlayers[player].Name.Text = player.Name
+            else
+                ESP.TrackedPlayers[player].Name.Visible = false
+            end
+        else
+            ESP.TrackedPlayers[player].Name.Visible = false
+            if not Players:FindFirstChild(player.Name) then
+                connection:Disconnect()
+                ESP.TrackedPlayers[player] = nil
+            end
+        end
+    end)
+end
+
+local function ToggleMovement()
+    Movement.Enabled = not Movement.Enabled
+    StarterGui:SetCore('SendNotification', {
+        Title = 'Movement',
+        Text = Movement.Enabled and 'Enabled' or 'Disabled',
+        Duration = 1,
+    })
+end
+
+local Notify = NotifyLibrary.Notify
+local Players = game:GetService('Players')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+
+local LocalPlayer = Players.LocalPlayer
+local immalickyoumaddie = {}
+
+local function notify(message)
+    Notify({ Title = 'Whitelist System', Description = message, Duration = 5 })
+end
+
+local function autoFillName(input)
+    local inputLower = string.lower(input)
+    for _, player in pairs(Players:GetPlayers()) do
+        if
+            string.lower(player.Name):sub(1, #inputLower) == inputLower
+            or string.lower(player.DisplayName):sub(1, #inputLower)
+                == inputLower
+        then
+            return player.Name
+        end
+    end
+    return nil
+end
+
+local function whitelistPlayer(name)
+    local fullName = autoFillName(name)
+    if fullName and not table.find(immalickyoumaddie, fullName) then
+        table.insert(immalickyoumaddie, fullName)
+        notify('Added ' .. fullName .. ' to whitelist.')
+        print('Whitelist:', table.concat(immalickyoumaddie, ', '))
+    else
+        notify('Player not found or already whitelisted.')
+    end
+end
+
+local function unwhitelistPlayer(name)
+    local fullName = autoFillName(name)
+    if fullName then
+        for i, playerName in ipairs(immalickyoumaddie) do
+            if playerName == fullName then
+                table.remove(immalickyoumaddie, i)
+                notify('Removed ' .. fullName .. ' from whitelist.')
+                print('Whitelist:', table.concat(immalickyoumaddie, ', '))
+                return
+            end
+        end
+        notify('Player not found in whitelist.')
+    else
+        notify('Player not found.')
+    end
+end
+
+local function processCommand(message)
+    if message:sub(1, 4) == '$wl ' then
+        local name = message:sub(5)
+        whitelistPlayer(name)
+    elseif message:sub(1, 6) == '$unwl ' then
+        local name = message:sub(7)
+        unwhitelistPlayer(name)
+    end
+end
+
+LocalPlayer.Chatted:Connect(processCommand)
+
+function killAuraLogic()
+    if not Aura.Enabled then
+        return
+    end
+    local closestPlayer, closestDistance = nil, math.huge
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local character, rootPart, bodyEffects =
+                player.Character,
+                player.Character:FindFirstChild('HumanoidRootPart'),
+                player.Character:FindFirstChild('BodyEffects')
+            if
+                rootPart
+                and not rootPart.Anchored
+                and not (bodyEffects and bodyEffects:FindFirstChild('K.O') and bodyEffects['K.O'].Value)
+                and not character:FindFirstChildOfClass('ForceField')
+                and not table.find(Aura.Blacklist, player.Name)
+                and not table.find(immalickyoumaddie, player.Name)
+                and not character:FindFirstChild('GRABBING_CONSTRAINT')
+                and (
+                    not Aura.FriendCheck
+                    or not player:IsFriendsWith(LocalPlayer.UserId)
+                )
+            then
+                local distance = (
+                    rootPart.Position
+                    - LocalPlayer.Character.HumanoidRootPart.Position
+                ).Magnitude
+                if distance < closestDistance and distance <= Aura.Range then
+                    closestDistance, closestPlayer = distance, player
+                end
+            end
+        end
+    end
+    if closestPlayer then
+        local tool, handle =
+            LocalPlayer.Character:FindFirstChildOfClass('Tool'),
+            LocalPlayer.Character:FindFirstChildOfClass('Tool')
+                and LocalPlayer.Character
+                    :FindFirstChildOfClass('Tool')
+                    :FindFirstChild('Handle')
+        if tool and handle then
+            local targetPart, targetBodyEffects =
+                closestPlayer.Character:FindFirstChild('Head'),
+                closestPlayer.Character:FindFirstChild('BodyEffects')
+            if
+                targetPart
+                and not (targetBodyEffects and targetBodyEffects:FindFirstChild(
+                    'K.O'
+                ) and targetBodyEffects['K.O'].Value)
+                and not closestPlayer.Character:FindFirstChildOfClass(
+                    'ForceField'
+                )
+            then
+                ReplicatedStorage.MainEvent:FireServer(
+                    'ShootGun',
+                    handle,
+                    handle.CFrame.Position,
+                    targetPart.Position,
+                    targetPart,
+                    Vector3.new(0, 0, -1)
+                )
+            end
+        end
+    end
+end
+
+local plr = game.Players.LocalPlayer
+plr.CharacterAdded:Connect(function(char)
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA('BasePart') then
+            v.CanCollide = false
+        end
+    end
+end)
+
+local function startAntiStomp()
+    local function checkAndKill()
+        local chr = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hum = chr:WaitForChild('Humanoid', 5)
+        local bodyEffects = chr:WaitForChild('BodyEffects', 5)
+
+        if not bodyEffects or not hum then
+            warn('BodyEffects or Humanoid not found in the character!')
+            return
+        end
+
+        local koValue = bodyEffects:WaitForChild('K.O', 5)
+        if not koValue then
+            warn('K.O value not found!')
+            return
+        end
+
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if not AntiStomp.Enabled then
+                connection:Disconnect()
+                return
+            end
+
+            if koValue.Value == true and hum.Health > 0 then
+                hum.Health = 0
+            end
+        end)
+    end
+
+    checkAndKill()
+
+    LocalPlayer.CharacterAdded:Connect(function()
+        if AntiStomp.Enabled then
+            checkAndKill()
+        end
+    end)
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then
+        return
+    end
+
+    if input.KeyCode == Enum.KeyCode.N then
+        ESP.Enabled = not ESP.Enabled
+        StarterGui:SetCore('SendNotification', {
+            Title = 'ESP',
+            Text = ESP.Enabled and 'Enabled' or 'Disabled',
+            Duration = 1,
+        })
+
+        for player, esp in pairs(ESP.TrackedPlayers) do
+            esp.Name.Visible = ESP.Enabled
+        end
+    elseif input.KeyCode == Enum.KeyCode.Z then
+        ToggleMovement()
+    elseif input.KeyCode == Enum.KeyCode.V then
+        Aura.Enabled = not Aura.Enabled
+        StarterGui:SetCore('SendNotification', {
+            Title = 'Kill Aura',
+            Text = Aura.Enabled and 'Enabled' or 'Disabled',
+            Duration = 1,
+        })
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if LocalPlayer.Character and LocalPlayer.Character.Humanoid then
+        LocalPlayer.Character.Humanoid.WalkSpeed = Movement.Enabled
+                and Movement.WalkSpeed
+            or 16
+        LocalPlayer.Character.Humanoid.JumpPower = Movement.Enabled
+                and Movement.JumpPower
+            or 50
+    end
+
+    killAuraLogic()
+end)
+
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        UpdateESP(player)
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    UpdateESP(player)
+end)
+
+startAntiStomp()
+
+local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+local Flying = false
+local FlySpeed = 500
+local FlyControl =
+    { Forward = 0, Backward = 0, Left = 0, Right = 0, Up = 0, Down = 0 }
+local Core, BodyGyro, BodyVelocity
+local NoClipConnection
+
+local function CreateCore()
+    if workspace:FindFirstChild('Core') then
+        workspace:FindFirstChild('Core'):Destroy()
+    end
+
+    Core = Instance.new('Part')
+    Core.Name = 'Core'
+    Core.Size = Vector3.new(0.05, 0.05, 0.05)
+    Core.CanCollide = false
+    Core.Anchored = false
+    Core.Parent = workspace
+
+    local Weld = Instance.new('Weld', Core)
+    Weld.Part0 = Core
+    Weld.Part1 = LocalPlayer.Character:WaitForChild('HumanoidRootPart')
+    Weld.C0 = CFrame.new(0, 0, 0)
+
+    BodyGyro = Instance.new('BodyGyro', Core)
+    BodyGyro.P = 9e4
+    BodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    BodyGyro.CFrame = Core.CFrame
+
+    BodyVelocity = Instance.new('BodyVelocity', Core)
+    BodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+end
+
+local function NoClip()
+    if NoClipConnection then
+        NoClipConnection:Disconnect()
+    end
+    NoClipConnection = RunService.Stepped:Connect(function()
+        if not Flying then
+            return
+        end
+        for _, part in pairs(LocalPlayer.Character:GetChildren()) do
+            if
+                part:IsA('BasePart')
+                and not table.find(
+                    { 'LeftUpperArm', 'RightUpperArm' },
+                    part.Name
+                )
+            then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function ResetCollisions()
+    if NoClipConnection then
+        NoClipConnection:Disconnect()
+    end
+    for _, part in pairs(LocalPlayer.Character:GetChildren()) do
+        if part:IsA('BasePart') then
+            part.CanCollide = true
+        end
+    end
+end
+
+local function StartFly()
+    if Flying then
+        return
+    end
+    Flying = true
+    CreateCore()
+    NoClip()
+
+    LocalPlayer.Character:FindFirstChildOfClass('Humanoid').PlatformStand = true
+
+    RunService.RenderStepped:Connect(function()
+        if not Flying then
+            return
+        end
+        BodyGyro.CFrame = workspace.CurrentCamera.CFrame
+
+        local MoveDirection = Vector3.new(
+            FlyControl.Left + FlyControl.Right,
+            FlyControl.Up + FlyControl.Down,
+            FlyControl.Forward + FlyControl.Backward
+        )
+
+        BodyVelocity.Velocity = (
+            workspace.CurrentCamera.CFrame:VectorToWorldSpace(MoveDirection)
+        ) * FlySpeed
+    end)
+end
+
+local function StopFly()
+    Flying = false
+    if Core then
+        Core:Destroy()
+    end
+    ResetCollisions()
+
+    local Character = LocalPlayer.Character
+    if Character then
+        Character:FindFirstChildOfClass('Humanoid').PlatformStand = false
+    end
+
+    if BodyVelocity then
+        local startTime = tick()
+        repeat
+            BodyVelocity.Velocity = Vector3.zero
+            RunService.Heartbeat:Wait()
+        until tick() - startTime >= 0.5
+    end
+end
+
+Mouse.KeyDown:Connect(function(KEY)
+    KEY = KEY:lower()
+    if KEY == 'x' then
+        if Flying then
+            StopFly()
+        else
+            StartFly()
+        end
+    elseif KEY == 'w' then
+        FlyControl.Forward = -1
+    elseif KEY == 's' then
+        FlyControl.Backward = 1
+    elseif KEY == 'a' then
+        FlyControl.Left = -1
+    elseif KEY == 'd' then
+        FlyControl.Right = 1
+    elseif KEY == 'space' then
+        FlyControl.Up = 1
+    elseif KEY == 'q' then
+        FlyControl.Down = -1
+    end
+end)
+
+Mouse.KeyUp:Connect(function(KEY)
+    KEY = KEY:lower()
+    if KEY == 'w' then
+        FlyControl.Forward = 0
+    elseif KEY == 's' then
+        FlyControl.Backward = 0
+    elseif KEY == 'a' then
+        FlyControl.Left = 0
+    elseif KEY == 'd' then
+        FlyControl.Right = 0
+    elseif KEY == 'space' then
+        FlyControl.Up = 0
+    elseif KEY == 'q' then
+        FlyControl.Down = 0
+    end
+end)
+
+task.spawn(function()
+    _G.AutoReload = true
+
+    while _G.AutoReload do
+        if not isStomping then
+            local player = game:GetService('Players').LocalPlayer
+            local tool = player.Character
+                and player.Character:FindFirstChildWhichIsA('Tool')
+
+            if tool then
+                local ammo = tool:FindFirstChild('Ammo')
+                if ammo and ammo.Value <= 0 then
+                    ReplicatedStorage.MainEvent:FireServer('Reload', tool)
+                    task.wait(0.1)
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+local Players = game:GetService('Players')
+local UserInputService = game:GetService('UserInputService')
+local player = Players.LocalPlayer
+
+local function getCharacter()
+    return player.Character or player.CharacterAdded:Wait()
+end
+
+local function teleportToItem(item)
+    local character = getCharacter()
+    if item and item:FindFirstChild('Head') and character then
+        character:WaitForChild('HumanoidRootPart').CFrame = item.Head.CFrame
+            * CFrame.new(0, 3, 0)
+    end
+end
+
+local function buyItem(item, times)
+    if item and item:FindFirstChild('ClickDetector') then
+        for _ = 1, times do
+            fireclickdetector(item.ClickDetector)
+            task.wait(0.1)
+        end
+    end
+end
+
+local function hasWeapon(name)
+    local backpack = player:FindFirstChild('Backpack')
+    local character = getCharacter()
+
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA('Tool') and tool.Name:match(name) then
+                return true
+            end
+        end
+    end
+
+    if character then
+        for _, tool in ipairs(character:GetChildren()) do
+            if tool:IsA('Tool') and tool.Name:match(name) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function processPurchase(weaponName, weaponItem, ammoItem, ammoAmount)
+    local ShopFolder = workspace:WaitForChild('Ignored'):WaitForChild('Shop')
+    local weapon = ShopFolder:FindFirstChild(weaponItem)
+    local ammo = ShopFolder:FindFirstChild(ammoItem)
+    local character = getCharacter()
+    local rootPart = character and character:FindFirstChild('HumanoidRootPart')
+    local oldPosition = rootPart and rootPart.CFrame
+
+    if not hasWeapon(weaponName) then
+        teleportToItem(weapon)
+        task.wait(0.2)
+        buyItem(weapon, 1)
+        repeat
+            task.wait()
+        until hasWeapon(weaponName)
+    end
+
+    teleportToItem(ammo)
+    task.wait(0.2)
+    buyItem(ammo, ammoAmount)
+
+    if oldPosition and rootPart then
+        rootPart.CFrame = oldPosition
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then
+        return
+    end
+
+    if input.KeyCode == Enum.KeyCode.Y then
+        processPurchase('AUG', '[AUG] - $2131', '90 [AUG Ammo] - $87', 10)
+    elseif input.KeyCode == Enum.KeyCode.O then
+        processPurchase('Rifle', '[Rifle] - $1694', '5 [Rifle Ammo] - $273', 10)
+    end
+end)
+
+local player = game:GetService('Players').LocalPlayer
+local dataFolder = player:WaitForChild('DataFolder')
+local armorInfo =
+    dataFolder:WaitForChild('Information'):WaitForChild('ArmorSave')
+local armorShop =
+    workspace.Ignored.Shop:FindFirstChild('[High-Medium Armor] - $2513')
+local shopHead = armorShop and armorShop:FindFirstChild('Head')
+local shopClickDetector = armorShop
+    and armorShop:FindFirstChild('ClickDetector')
+local cooldown = 0.1
+local originalPosition = nil
+getgenv().AutoBuyArmorEnabled = true
+
+local function autoBuyArmor()
+    if not getgenv().AutoBuyArmorEnabled or not player.Character then
+        return
+    end
+
+    local character = player.Character
+    local rootPart = character:FindFirstChild('HumanoidRootPart')
+    if not rootPart or not shopHead or not shopClickDetector then
+        return
+    end
+
+    if not originalPosition then
+        originalPosition = rootPart.CFrame
+    end
+
+    local targetCFrame = shopHead.CFrame * CFrame.new(0, 3, 0)
+    rootPart.CFrame = targetCFrame
+    task.wait(0.2)
+
+    fireclickdetector(shopClickDetector)
+    task.wait(cooldown)
+
+    if originalPosition then
+        rootPart.CFrame = originalPosition
+        originalPosition = nil
+    end
+end
+
+local function monitorArmor()
+    while true do
+        if tonumber(armorInfo.Value) < 85 and getgenv().AutoBuyArmorEnabled then
+            autoBuyArmor()
+        end
+        task.wait(0.1)
+    end
+end
+
+player.CharacterAdded:Connect(function(character)
+    character:WaitForChild('HumanoidRootPart')
+    originalPosition = nil
+    task.spawn(monitorArmor)
+end)
+
+task.spawn(monitorArmor)
+
+--chatspy
+enabled = true --chat "/spy" to toggle!
+spyOnMyself = true --if true will check your messages too
+public = false --if true will chat the logs publicly (fun, risky)
+publicItalics = true --if true will use /me to stand out
+privateProperties = { --customize private logs
+    Color = Color3.fromRGB(0, 255, 255),
+    Font = Enum.Font.SourceSansBold,
+    TextSize = 18,
+}
+
+local StarterGui = game:GetService('StarterGui')
+local Players = game:GetService('Players')
+local player = Players.LocalPlayer
+    or Players:GetPropertyChangedSignal('LocalPlayer'):Wait()
+    or Players.LocalPlayer
+local saymsg = game:GetService('ReplicatedStorage')
+    :WaitForChild('DefaultChatSystemChatEvents')
+    :WaitForChild('SayMessageRequest')
+local getmsg = game:GetService('ReplicatedStorage')
+    :WaitForChild('DefaultChatSystemChatEvents')
+    :WaitForChild('OnMessageDoneFiltering')
+local instance = (_G.chatSpyInstance or 0) + 1
+_G.chatSpyInstance = instance
+
+local function onChatted(p, msg)
+    if _G.chatSpyInstance == instance then
+        if p == player and msg:lower():sub(1, 4) == '/spy' then
+            enabled = not enabled
+            wait(0.3)
+            privateProperties.Text = '{SPY '
+                .. (enabled and 'EN' or 'DIS')
+                .. 'ABLED}'
+            StarterGui:SetCore('ChatMakeSystemMessage', privateProperties)
+        elseif enabled and (spyOnMyself == true or p ~= player) then
+            msg = msg:gsub('[\n\r]', ''):gsub('\t', ' '):gsub('[ ]+', ' ')
+            local hidden = true
+            local conn = getmsg.OnClientEvent:Connect(function(packet, channel)
+                if
+                    packet.SpeakerUserId == p.UserId
+                    and packet.Message == msg:sub(#msg - #packet.Message + 1)
+                    and (
+                        channel == 'All'
+                        or (
+                            channel == 'Team'
+                            and public == false
+                            and Players[packet.FromSpeaker].Team
+                                == player.Team
+                        )
+                    )
+                then
+                    hidden = false
+                end
+            end)
+            wait(1)
+            conn:Disconnect()
+            if hidden and enabled then
+                if public then
+                    saymsg:FireServer(
+                        (publicItalics and '/me ' or '')
+                            .. '{SPY} ['
+                            .. p.Name
+                            .. ']: '
+                            .. msg,
+                        'All'
+                    )
+                else
+                    privateProperties.Text = '{SPY} [' .. p.Name .. ']: ' .. msg
+                    StarterGui:SetCore(
+                        'ChatMakeSystemMessage',
+                        privateProperties
+                    )
+                end
+            end
+        end
+    end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    p.Chatted:Connect(function(msg)
+        onChatted(p, msg)
+    end)
+end
+Players.PlayerAdded:Connect(function(p)
+    p.Chatted:Connect(function(msg)
+        onChatted(p, msg)
+    end)
+end)
+privateProperties.Text = '{SPY ' .. (enabled and 'EN' or 'DIS') .. 'ABLED}'
+StarterGui:SetCore('ChatMakeSystemMessage', privateProperties)
+if not player.PlayerGui:FindFirstChild('Chat') then
+    wait(3)
+end
+local chatFrame = player.PlayerGui.Chat.Frame
+chatFrame.ChatChannelParentFrame.Visible = true
+chatFrame.ChatBarParentFrame.Position = chatFrame.ChatChannelParentFrame.Position
+    + UDim2.new(UDim.new(), chatFrame.ChatChannelParentFrame.Size.Y)
+--end
